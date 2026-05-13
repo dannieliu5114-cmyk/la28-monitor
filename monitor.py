@@ -26,7 +26,8 @@ SESSIONS = [
     },
 ]
 
-SOLD_OUT_MARKER = "isShowEmptyState"
+# 页面源码中代表「售空」的关键词（小写匹配）
+SOLD_OUT_MARKER = "sold out"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -44,9 +45,9 @@ def is_available(session: dict) -> bool:
             allow_redirects=True,
             timeout=15,
         )
-        final_url = resp.url
-        print(f"[{session['name']}] 最终落地 URL: {final_url}")
-        return SOLD_OUT_MARKER not in final_url
+        sold_out = SOLD_OUT_MARKER in resp.text.lower()
+        print(f"[{session['name']}] 售空关键词存在: {sold_out}")
+        return not sold_out
     except Exception as e:
         print(f"[{session['name']}] 请求失败: {e}")
         return False
