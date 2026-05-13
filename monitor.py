@@ -1,8 +1,8 @@
-import requests
-import smtplib
 import os
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from playwright.sync_api import sync_playwright
 
 # ─────────────────────────────────────────
 # 监控的场次列表，可自行增减
@@ -26,27 +26,17 @@ SESSIONS = [
     },
 ]
 
-# 页面源码中代表「售空」的关键词（小写匹配）
-SOLD_OUT_MARKER = "sold out"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/124.0.0.0 Safari/537.36"
-}
+SOLD_OUT_MARKER = "isShowEmptyState"
 
 
-def is_available(session: dict) -> bool:
+def is_available(session: dict, page) -> bool:
     """返回 True 表示该场次已放票"""
     try:
-        resp = requests.get(
-            session["url"],
-            headers=HEADERS,
-            allow_redirects=True,
-            timeout=15,
-        )
-        sold_out = SOLD_OUT_MARKER in resp.text.lower()
-        print(f"[{session['name']}] 售空关键词存在: {sold_out}")
+        page.goto(session["url"], wait_until="networkidle", timeout=30000)
+        final_url = page.url
+        sold_out = SOLD_OUT_MARKER in final_url
+        print(f"[{session['name']}] 最终 URL: {final_url}")
+        print(f"[{session['name']}] 售空状态: {sold_out}")
         return not sold_out
     except Exception as e:
         print(f"[{session['name']}] 请求失败: {e}")
@@ -83,7 +73,14 @@ def send_email(available_sessions: list[dict]):
 
 
 def main():
-    available = [s for s in SESSIONS if is_available(s)]
+    available = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        for session in SESSIONS:
+            if is_available(session, page):
+                available.append(session)
+        browser.close()
 
     if available:
         print(f"发现 {len(available)} 个场次可购买，发送邮件通知...")
