@@ -18,7 +18,7 @@ SESSIONS = [
     },
     {
         "name": "乒乓球 男单决赛",
-        "url": "https://hospitality.la28.org/en/products/TTE/TTE25?&step=1",
+        "url": "https://hospitality.la28.org/en/products/TTE/TTE25?step=1",
     },
     {
         "name": "乒乓球 混团决赛",
@@ -32,7 +32,7 @@ SOLD_OUT_MARKER = "isShowEmptyState"
 def is_available(session: dict, page) -> bool:
     """返回 True 表示该场次已放票"""
     try:
-        page.goto(session["url"], wait_until="networkidle", timeout=30000)
+        page.goto(session["url"], wait_until="networkidle", timeout=60000)
         final_url = page.url
         sold_out = SOLD_OUT_MARKER in final_url
         print(f"[{session['name']}] 最终 URL: {final_url}")
