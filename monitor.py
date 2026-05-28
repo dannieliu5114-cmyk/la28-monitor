@@ -34,6 +34,23 @@ LIST_URL = "https://hospitality.la28.org/en/products?events=TTE&dates=&groupSize
 SOLD_OUT_MARKER = "register interest"
 LIST_AVAILABLE_MARKER = "select"
 
+# 等候室特征词（出现任一即视为进入等候室，跳过判断）
+WAITING_ROOM_MARKERS = [
+    "you are now in line",
+    "it is your turn",
+    "you will have 10 minutes",
+    "period of high demand",
+    "thank you for waiting",
+]
+
+
+def is_waiting_room(content: str) -> bool:
+    """检测是否进入了等候室页面"""
+    for marker in WAITING_ROOM_MARKERS:
+        if marker in content:
+            return True
+    return False
+
 
 def load_all_sessions(page):
     """持续点击 Show More 直到所有场次加载完毕"""
@@ -49,62 +66,78 @@ def load_all_sessions(page):
             break
 
 
-def check_detail_page(session: dict, page) -> bool:
-    """详情页：页面上完全没有 'register interest' → 有票"""
+def check_detail_page(session: dict, page) -> tuple[bool, bool]:
+    """
+    返回 (is_available, is_reliable)
+    is_reliable=False 表示进入等候室，结果不可信
+    """
     try:
         page.goto(session["url"], wait_until="networkidle", timeout=60000)
         content = page.inner_text("body").lower()
+
+        if is_waiting_room(content):
+            print(f"  [详情页] 进入等候室，跳过判断")
+            return False, False
+
         sold_out = SOLD_OUT_MARKER in content
         print(f"  [详情页] 售空标志存在: {sold_out}")
-        return not sold_out
+        return not sold_out, True
     except Exception as e:
         print(f"  [详情页] 请求失败: {e}")
-        return False
+        return False, False
 
 
-def check_list_page(session: dict, page) -> bool:
+def check_list_page(session: dict, page) -> tuple[bool, bool]:
     """
-    列表页：点击所有 Show More 加载全部场次，
-    找到对应场次代码且按钮为 Select（非 Register Interest）即为有票。
-    场次未出现视为售空。
+    返回 (is_available, is_reliable)
+    is_reliable=False 表示进入等候室，结果不可信
     """
     try:
         page.goto(LIST_URL, wait_until="networkidle", timeout=60000)
-
-        # 展开所有场次
-        load_all_sessions(page)
-
         content = page.inner_text("body").lower()
 
-        # 场次未出现 → 售空/隐藏
+        if is_waiting_room(content):
+            print(f"  [列表页] 进入等候室，跳过判断")
+            return False, False
+
+        load_all_sessions(page)
+        content = page.inner_text("body").lower()
+
         if session["code"].lower() not in content:
             print(f"  [列表页] 场次 {session['code']} 未出现（已隐藏或售空）")
-            return False
+            return False, True
 
-        # 找到场次卡片，检查按钮
         cards = page.locator(f"text={session['code']}").all()
         for card in cards:
             try:
                 parent_text = card.locator("xpath=ancestor::*[5]").inner_text().lower()
                 if LIST_AVAILABLE_MARKER in parent_text and SOLD_OUT_MARKER not in parent_text:
                     print(f"  [列表页] 场次 {session['code']} 有 Select 按钮 → 有票")
-                    return True
+                    return True, True
             except Exception:
                 continue
 
         print(f"  [列表页] 场次 {session['code']} 存在但无 Select 按钮 → 售空")
-        return False
+        return False, True
     except Exception as e:
         print(f"  [列表页] 请求失败: {e}")
-        return False
+        return False, False
 
 
 def is_available(session: dict, page) -> bool:
-    """详情页或列表页任一检测到有票即通知（OR 逻辑）"""
+    """
+    详情页或列表页任一可靠地检测到有票即通知。
+    两个检测都进入等候室时，保守处理不发通知。
+    """
     print(f"\n[{session['name']}] 开始检测...")
-    detail = check_detail_page(session, page)
-    listing = check_list_page(session, page)
-    result = detail or listing
+    detail_avail, detail_reliable = check_detail_page(session, page)
+    list_avail, list_reliable = check_list_page(session, page)
+
+    if not detail_reliable and not list_reliable:
+        print(f"  → 两个检测均进入等候室，本次跳过")
+        return False
+
+    result = detail_avail or list_avail
     print(f"  → 最终判断: {'有票！' if result else '售空'}")
     return result
 
